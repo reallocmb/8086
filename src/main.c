@@ -89,41 +89,53 @@ InstructionFormat instruction_formats[] = {
         } },
 };
 
+typedef enum {
+    OP_MOV,
+} OPCode;
+
+typedef enum {
+    REG_A,
+} Register;
+
+typedef struct InstructionOperand {
+    OPCode op_code;
+    union {
+        Register reg;
+    };
+} InstructionOperand;
+
 typedef struct Instruction {
-    InstructionFormat *instruction_format;
     char *mnemonic;
-    u8 bit_d;
-    u8 bit_w;
-    u8 bit_mod;
-    u8 bit_reg;
-    u8 bit_rm;
+    InstructionOperand operands[2];
 } Instruction;
 
 void instruction_decode(Instruction *instruction, u8 *memory, u32 *i)
 {
-    u32 instruction_formats_count = sizleof(instruction_formats) / sizeof(*instruction_formats);
+    u32 instruction_formats_count = sizeof(instruction_formats) / sizeof(*instruction_formats);
     u32 bits_offset = 0;
-    while (--instruction_formats_count)
+    while (instruction_formats_count--)
     {
         u32 count = instruction_formats[instruction_formats_count].bits[0].count;
         u32 shift = 8 - count;
-        u32 bits = memory;
-        bits >>= count;
+        u8 bits = *memory;
+        bits >>= shift;
         bits &= ~(0xff << count);
-        if (bits == instruction_formats[instruction_formats_count].bits[0].value)
-        {
-        }
     }
 }
 
 void instruction_print(Instruction *instruction)
 {
+    printf("%s %s, %s\n",
+           instruction->mnemonic,
+           "-",
+           "-");
 }
 
 void intel_8086_disasm(Intel8086 *intel_8086, u32 bytes)
 {
     Instruction instruction;
     u32 i = 0;
+    printf("16 bits\n");
     while (bytes--)
     {
         instruction_decode(&instruction, intel_8086->memory, &i);

@@ -1,6 +1,7 @@
 #include<stdio.h>
 #include<stdint.h>
 #include<stdlib.h>
+#include<string.h>
 
 typedef uint8_t u8;
 typedef uint16_t u16;
@@ -12,12 +13,39 @@ typedef int16_t s16;
 typedef int32_t s32;
 typedef int64_t s64;
 
+#define INTEL_8086_MEMORY_SIZE 1048576 /* 1024 * 1024 */
+#define INTEL_8086_REGISTER_COUNT 8
+
 typedef struct Intel8086 {
-    u8 memory[1024 * 1024];
+    u8 memory[INTEL_8086_MEMORY_SIZE];
+    u16 registers[INTEL_8086_REGISTER_COUNT];
 } Intel8086;
 
+typedef enum {
+    REGISTER_A,
+    REGISTER_C,
+    REGISTER_D,
+    REGISTER_B,
+    REGISTER_SP,
+    REGISTER_BP,
+    REGISTER_SI,
+    REGISTER_DI,
+} Register;
+
+const char register_table_str[INTEL_8086_REGISTER_COUNT][3] = {
+    "ax",
+    "cx",
+    "dx",
+    "bx",
+    "sp",
+    "bp",
+    "si",
+    "di"
+};
+
+void intel_8086_startup(Intel8086 *intel_8086);
+void intel_8086_print(Intel8086 *intel_8086, u32 memory_point_start, u32 memory_bytes_lookup);
 u32 intel_8086_bytes_load_from_file(Intel8086 *intel_8086, char *file_path, u32 offset);
-void intel_8086_disasm(Intel8086 *intel8086, u32 bytes);
 void bytes_binary_print(u8 *memory, u32 bytes);
 
 int main(int argc, char **argv)
@@ -26,11 +54,44 @@ int main(int argc, char **argv)
         return 0;
 
     Intel8086 intel_8086;
+    intel_8086_startup(&intel_8086);
+    intel_8086_print(&intel_8086, 0, 50);
     u32 bytes = intel_8086_bytes_load_from_file(&intel_8086, argv[1], 0);
+    intel_8086_print(&intel_8086, 0, 50);
     bytes_binary_print(intel_8086.memory, bytes);
-    intel_8086_disasm(&intel_8086, bytes);
 
     return 0;
+}
+
+void intel_8086_startup(Intel8086 *intel_8086)
+{
+    memset(intel_8086->memory, 0, INTEL_8086_MEMORY_SIZE * sizeof(*intel_8086->memory));
+    memset(intel_8086->registers, 0, INTEL_8086_REGISTER_COUNT * sizeof(*intel_8086->registers));
+}
+
+void intel_8086_print(Intel8086 *intel_8086, u32 memory_point_start, u32 memory_bytes_lookup)
+{
+    printf("Registers:\n");
+    u32 i;
+    for (i = 0; i < INTEL_8086_REGISTER_COUNT; i++)
+        printf("%s 0x%s%x\n",
+               register_table_str[i],
+               (intel_8086->registers[i] <= 0xf) ?"0" :"",
+               intel_8086->registers[i]);
+
+    printf("Memory:\n");
+    for (i = memory_point_start; i < memory_bytes_lookup; i += 8)
+        printf("0x%x:\t %s%x %s%x %s%x %s%x %s%x %s%x %s%x %s%x\n",
+               i,
+               (intel_8086->memory[i] <= 0xf) ?"0" :"", intel_8086->memory[i]  ,
+               (intel_8086->memory[i + 1] <= 0xf) ?"0" :"", intel_8086->memory[i + 1],
+               (intel_8086->memory[i + 2] <= 0xf) ?"0" :"", intel_8086->memory[i + 2],
+               (intel_8086->memory[i + 3] <= 0xf) ?"0" :"", intel_8086->memory[i + 3],
+               (intel_8086->memory[i + 4] <= 0xf) ?"0" :"", intel_8086->memory[i + 4]  ,
+               (intel_8086->memory[i + 5] <= 0xf) ?"0" :"", intel_8086->memory[i + 5],
+               (intel_8086->memory[i + 6] <= 0xf) ?"0" :"", intel_8086->memory[i + 6],
+               (intel_8086->memory[i + 7] <= 0xf) ?"0" :"", intel_8086->memory[i + 7]);
+
 }
 
 u32 intel_8086_bytes_load_from_file(Intel8086 *intel_8086, char *file_path, u32 offset)
@@ -49,98 +110,6 @@ u32 intel_8086_bytes_load_from_file(Intel8086 *intel_8086, char *file_path, u32 
         bytes += bytes_read;
 
     return bytes;
-}
-
-typedef enum {
-    BITS_LITERAL,
-    BITS_D,
-    BITS_W,
-    BITS_MOD,
-    BITS_REG,
-    BITS_RM,
-} BitsType;
-
-typedef struct Bits {
-    BitsType type;
-    u8 count;
-    u8 value;
-} Bits;
-
-typedef struct InstructionFormat {
-    char *mnemonic;
-    Bits bits[16];
-} InstructionFormat;
-
-InstructionFormat instruction_formats[] = {
-    { "mov", /* register/memory to/from register */
-        {
-            { BITS_LITERAL, 6, 0b100010 },
-            { BITS_D, 1 },
-            { BITS_W, 1 },
-            { BITS_MOD, 2 },
-            { BITS_REG, 3 },
-            { BITS_RM, 3 },
-        } },
-    { "mov", /* immediate to register */
-        {
-            { BITS_LITERAL, 4, 0b1011 },
-            { BITS_W, 1 },
-            { BITS_REG, 3 },
-        } },
-};
-
-typedef enum {
-    OP_MOV,
-} OPCode;
-
-typedef enum {
-    REG_A,
-} Register;
-
-typedef struct InstructionOperand {
-    OPCode op_code;
-    union {
-        Register reg;
-    };
-} InstructionOperand;
-
-typedef struct Instruction {
-    char *mnemonic;
-    InstructionOperand operands[2];
-} Instruction;
-
-void instruction_decode(Instruction *instruction, u8 *memory, u32 *i)
-{
-    u32 instruction_formats_count = sizeof(instruction_formats) / sizeof(*instruction_formats);
-    u32 bits_offset = 0;
-    while (instruction_formats_count--)
-    {
-        u32 count = instruction_formats[instruction_formats_count].bits[0].count;
-        u32 shift = 8 - count;
-        u8 bits = *memory;
-        bits >>= shift;
-        bits &= ~(0xff << count);
-    }
-}
-
-void instruction_print(Instruction *instruction)
-{
-    printf("%s %s, %s\n",
-           instruction->mnemonic,
-           "-",
-           "-");
-}
-
-void intel_8086_disasm(Intel8086 *intel_8086, u32 bytes)
-{
-    Instruction instruction;
-    u32 i = 0;
-    printf("16 bits\n");
-    while (bytes--)
-    {
-        instruction_decode(&instruction, intel_8086->memory, &i);
-        instruction_print(&instruction);
-    }
 }
 
 void bytes_binary_print(u8 *memory, u32 bytes)

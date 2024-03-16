@@ -1,0 +1,6 @@
+mov cx, bx
+
+10001001 11011001
+
+100010 0     1     11  001 001
+mov    d-bit w-bit mod reg r/m
